@@ -22,8 +22,14 @@ def _print_readings(readings):
 
 def main():
     traj_time = 10.0                 # sec
+    target_sample_rate = 100  # Hz - aimed sampling rate
     joint_angles = []
     timestamps = []
+    
+    print(f"\nConfiguration:")
+    print(f"Trajectory time: {traj_time} seconds")
+    print(f"Target sampling rate: {target_sample_rate} Hz")
+    print(f"Expected samples: {int(traj_time * target_sample_rate)}")
 
     robot = Robot()
 
@@ -37,15 +43,35 @@ def main():
     time.sleep(traj_time)
 
 
+    # Target joint angles
+    target_angles = [45, -30, 30, 75]
+    
+    print(f"\nStarting motion tracking...")
     t0 = time.perf_counter()
+    
+    # Record data for the full trajectory duration
     while time.perf_counter() - t0 < traj_time:
-        _print_readings(robot.get_joints_readings())
-        #moving to [45, -30, 30, 75]
-        print("moving to [45, -30, 30, 75] deg ...")
-        robot.write_joints([45, -30, 30, 75])
+        # Get current time and readings
+        current_time = time.perf_counter() - t0
+        current_readings = robot.get_joints_readings()
         
-        timestamps.append(time.perf_counter() - t0)
-        joint_angles.append(robot.get_joints_readings()[0])
+        # Only command motion once at the start
+        if len(timestamps) == 0:
+            print(f"Moving to {target_angles} deg...")
+            robot.write_joints(target_angles)
+            
+        # Store data
+        timestamps.append(current_time)
+        joint_angles.append(current_readings[0])
+        
+        # Try to maintain target sample rate (avoid busy waiting)
+        remaining_time = (1.0 / target_sample_rate) - (time.perf_counter() - (t0 + current_time))
+        if remaining_time > 0:
+            time.sleep(remaining_time * 0.8)  # Sleep for slightly less than full interval to account for overhead
+        
+        # Print status every ~1 second
+        if len(timestamps) % 10 == 0:  # Adjust frequency based on actual sampling rate
+            _print_readings(current_readings)
 
     #convert joint_angles and timestamps to numpy arrays
     joint_angles_np = numpy.array(joint_angles) #shape (N, 4)
@@ -97,18 +123,34 @@ def main():
     plt.show()
 
 
-
-    #mean, median, min, max, standard deviation histogeam of delta_ta uing np.diff(t)
-    mean_t = numpy.mean(numpy.diff(timestamps_np))
-    median_t = numpy.median(numpy.diff(timestamps_np))
-    min_t = numpy.min(numpy.diff(timestamps_np))
-    max_t = numpy.max(numpy.diff(timestamps_np))
-    std_t = numpy.std(numpy.diff(timestamps_np))
+    # Timing histogram. Compute ∆t using np.diff(t) and plot a histogram of the sampling intervals
+    delta_t = numpy.diff(timestamps_np)
+    
+    print(f"Number of samples: {len(timestamps_np)}")
+    print(f"Total time span: {timestamps_np[-1] - timestamps_np[0]:.4f} s")
+    
+    #computing timing statistics
+    mean_t = numpy.mean(delta_t)
+    median_t = numpy.median(delta_t)
+    min_t = numpy.min(delta_t)
+    max_t = numpy.max(delta_t)
+    std_t = numpy.std(delta_t)
+    
+    print(f"\nTiming Statistics:")
     print(f"Mean delta_t: {mean_t:.4f} s")
     print(f"Median delta_t: {median_t:.4f} s")
     print(f"Min delta_t: {min_t:.4f} s")
     print(f"Max delta_t: {max_t:.4f} s")
     print(f"Standard deviation of delta_t: {std_t:.4f} s")
+    
+    # Plot histogram of sampling intervals
+    plt.figure(figsize=(8, 6))
+    plt.hist(delta_t, bins=30, edgecolor='black')
+    plt.xlabel('Time Interval (s)')
+    plt.ylabel('Frequency')
+    plt.title('Histogram of Sampling Intervals')
+    plt.grid(True)
+    plt.show()
 
 
 
