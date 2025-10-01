@@ -5,6 +5,7 @@ import time
 import matplotlib.pyplot as plt
 import numpy
 from classes.Robot import Robot
+import pickle
 
 """
 This script demonstrates basic operation of the OpenManipulator-X via the Robot class.
@@ -21,7 +22,7 @@ def _print_readings(readings):
     print(f"q(deg): [{q_str}] | qdot(deg/s): [{qd_str}] | I(mA): [{I_str}]")
 
 def main():
-    traj_time = 10.0                 # sec
+    traj_time = 2.0                 # sec
     target_sample_rate = 100  # Hz - aimed sampling rate
     joint_angles = []
     timestamps = []
@@ -76,6 +77,9 @@ def main():
     #convert joint_angles and timestamps to numpy arrays
     joint_angles_np = numpy.array(joint_angles) #shape (N, 4)
     timestamps_np = numpy.array(timestamps) #shape (N,)
+
+    #coverting target_angles to a numpy array for saving later
+    target_angles = numpy.array(target_angles) #shape (4,)
 
     # Create figure with 4 subplots, one per joint
     plt.figure(figsize=(12, 10))
@@ -154,6 +158,74 @@ def main():
 
 
 
+    #Helper functions to save data to a pickle file
+    def save_to_pickle(data: dict, filename: str):
+        with open(filename, "wb") as f:
+            pickle.dump(data, f)
+    def load_from_pickle(filename: str):
+        with open(filename, "rb") as f:
+            return pickle.load(f)
+
+    #Loads the dict. Recreates the four joint time-series subplots from timestamps_s and joint_deg. Recomputes and plots the ∆t histogram and prints the same statistics as in Part 2
+    def plot_from_pickle(filename):
+        # Load data from pickle file
+        data = load_from_pickle(filename)
+        timestamps_np = data["timestamps_s"]
+        joint_angles_np = data["joint_deg"]
+
+        # Plot joint angles
+        plt.figure(figsize=(12, 10))
+        plt.subplots_adjust(hspace=0.4)
+        for i in range(4):
+            plt.subplot(4, 1, i + 1)
+            plt.plot(timestamps_np, joint_angles_np[:, i], label=f"Joint {i+1}")
+            plt.xlabel("Time (s)")
+            plt.ylabel("Angle (deg)")
+            plt.title(f"Joint {i+1} Angle vs Time")
+            plt.grid()
+            plt.legend()
+        plt.show()
+
+        # Timing histogram
+        delta_t = numpy.diff(timestamps_np)
+        print(f"Number of samples: {len(timestamps_np)}")
+        print(f"Total time span: {timestamps_np[-1] - timestamps_np[0]:.4f} s")
+        mean_t = numpy.mean(delta_t)
+        median_t = numpy.median(delta_t)
+        min_t = numpy.min(delta_t)
+        max_t = numpy.max(delta_t)
+        std_t = numpy.std(delta_t)
+        print(f"\nTiming Statistics:")
+        print(f"Mean delta_t: {mean_t:.4f} s")
+        print(f"Median delta_t: {median_t:.4f} s")
+        print(f"Min delta_t: {min_t:.4f} s")
+        print(f"Max delta_t: {max_t:.4f} s")
+        print(f"Standard deviation of delta_t: {std_t:.4f} s")
+        plt.figure(figsize=(8, 6))
+        plt.hist(delta_t, bins=30, edgecolor='black')
+        plt.xlabel('Time Interval (s)')
+        plt.ylabel('Frequency')
+        plt.title('Histogram of Sampling Intervals')
+        plt.grid(True)
+        plt.show()
+        
+        
+
+        
+        
+
+    #10s
+    filename = "lab1_data_2s.pkl"
+    # Save
+    save_to_pickle({"timestamps_s": timestamps_np, "joint_deg": joint_angles_np, "target_deg":
+        target_angles, "traj_time_s": 2.0}, filename)
+    # Load
+    data = load_from_pickle(filename)
+    t = data["timestamps_s"]; Q = data["joint_deg"]
+    plot_from_pickle(filename)  #calling plot_from_pickle
+
+
+    
 
 
     # Shutdown
