@@ -13,7 +13,7 @@ This script tests the get_ik function and backtests it using the get_ee_pos func
 """
 
 def main():
-    traj_time = 2.0                 # sec
+    traj_time = 5.0                 # sec
     #poll_dt   = 0.1                 # sec
 
     robot = Robot()
@@ -37,6 +37,17 @@ def main():
             # print(fk_pose)
             print(f"Test {i}: fk_pose={np.round(fk_pose, 3)} mm")
 
+
+    # for i, pose in enumerate(tests, start=1):
+    #     q = robot.get_ik(pose)
+    #     print(f"Test {i}: pose={pose} -> joints={np.round(q, 3)} deg")
+
+    #     fk_pose = robot.get_fk(q)
+    #     print(f"Test {i}: fk_pose={np.round(fk_pose, 3)} mm")
+
+    #     pos_err = np.linalg.norm(pose[:3] - fk_pose[:3])
+    #     ori_err = np.linalg.norm(pose[3:] - fk_pose[3:])
+    #     print(f"Position error: {pos_err:.3f} mm, Orientation error: {ori_err:.3f} deg\n")
 
     # Shutdown
     robot.close()
