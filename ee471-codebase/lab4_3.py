@@ -25,25 +25,21 @@ def collect_data():
         [25, -100, 150, -60]  # Return to start
     ])
 
-    print("Computing IK for waypoints...")
-    try:
-        joint_angles_np = np.array([
-            robot.get_ik(waypoints_np[0, :]),
-            robot.get_ik(waypoints_np[1, :]),
-            robot.get_ik(waypoints_np[2, :]),
-            robot.get_ik(waypoints_np[3, :])
-        ])
-        print("IK solutions:")
-        for i, angles in enumerate(joint_angles_np):
-            print(f"  Waypoint {i+1}: {angles}")
-    except ValueError as e:
-        raise ValueError(f"End-Effector Pose Unreachable: {e}")
+    planner = TrajPlanner(waypoints_np)
+    trajectories = planner.get_quintic_traj(traj_time, points_num)
 
-    # Create trajectory in joint space
-    print("\nGenerating cubic trajectory...")
-    tj = TrajPlanner(joint_angles_np)
-    trajectories = tj.get_cubic_traj(traj_time, points_num)
-    
+    # Convert task-space trajectory to joint-space trajectory using IK
+    joint_trajectories = []
+    for i in range(len(trajectories)):
+        t = trajectories[i, 0]
+        x, y, z, phi = trajectories[i, 1:]
+        q = robot.get_ik([x, y, z, phi])
+        joint_trajectories.append([t, q[0], q[1], q[2], q[3]])
+    trajectories = np.array(joint_trajectories)
+
+
+
+
     print(f"Trajectory shape: {trajectories.shape}")
     print(f"Total trajectory time: {trajectories[-1, 0]:.2f} seconds")
 
@@ -197,10 +193,10 @@ def collect_data():
     plt.show()
 
     # Save data to pickle file
-    filename = "lab4_2_data.pkl"
+    filename = "lab4_3_data.pkl"
     save_data = {
         "timestamps_s": timestamps_np,
-        "joint_deg": joint_angles_np,
+        "joint_deg": q,
         "ee_pos_mm": data_ee_poses,
         "waypoints_deg": waypoints_np,
         "traj_time_s": traj_time
@@ -300,6 +296,6 @@ if __name__ == "__main__":
     
     # # Collect data
     collect_data()
-    plot_from_pickle("lab4_2_data.pkl")
+    plot_from_pickle("lab4_3_data.pkl")
     # Plot data
     # plot_data()
