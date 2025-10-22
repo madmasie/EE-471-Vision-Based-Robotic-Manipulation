@@ -312,12 +312,25 @@ class Robot(OM_X_arm):
     def get_current_fk(self):
         return self.get_fk(self.get_joints_readings()[0, :])  # first row is q (deg)
 
-    def get_ee_pos(self):
-        q_deg = self.get_joints_readings()[0, :]  # first row is q (deg)
-        T = self.get_fk(q_deg)
-        x, y, z = T[0:3, 3]
-        yaw = q_deg[0]
-        pitch = -(q_deg[1] + q_deg[2] + q_deg[3])
+    def get_ee_pos(self, joint_angles=None):
+        if joint_angles is None:
+            joint_angles = self.get_joints_readings()[0, :]  # first row is q (deg)
+
+        T = self.get_fk(joint_angles)
+        x = T[0, 3]
+        y = T[1, 3]
+        z = T[2, 3]
+
+        # Extract pitch and yaw from rotation matrix
+        r11 = T[0, 0]
+        r21 = T[1, 0]
+        r31 = T[2, 0]
+        r32 = T[2, 1]
+        r33 = T[2, 2]
+
+        yaw = math.degrees(math.atan2(r21, r11))
+        pitch = math.degrees(math.atan2(-r31, math.sqrt(r32**2 + r33**2)))
+
         return np.array([x, y, z, pitch, yaw], dtype=float)
                     
 
@@ -398,3 +411,5 @@ class Robot(OM_X_arm):
         
         else:  # both valid, choose preferred (elbow-up)
             return np.array([q1, q2_up, q3_up, q4_up], dtype=float)
+
+
