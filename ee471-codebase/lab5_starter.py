@@ -254,12 +254,15 @@ def collect_data():
         'joint_angles': data_q,
         'joint_velocities': data_q_dot,
         'ee_positions': data_ee_pos,
-        'ee_vel_cmd': data_ee_vel_cmd,
-        'ee_vel_actual': data_ee_vel_actual,
+        'ee_velocities_commanded': data_ee_vel_cmd,
+        'ee_velocities_actual': data_ee_vel_actual,
         'waypoints': ee_poses,
         'velocity_des': velocity_des,
         'tolerance': tolerance,
         'max_joint_vel': max_joint_vel
+
+
+
     }
     
     # Write dictionary to pickle file
@@ -267,167 +270,111 @@ def collect_data():
         pickle.dump(data_dict, f)
     
     print("Data saved successfully!")
-
-def plot_data(dat):
+def plot_data(filename='lab5_4_data.pkl'):
     """
-    Load data and create required plots.
+    Load data and create required plots per lab requirements.
     """
+    import matplotlib.pyplot as plt
+    from mpl_toolkits.mplot3d import Axes3D
     
-
-    """Load and plot data from pickle file"""
     # Load data
     with open(filename, "rb") as f:
         data = pickle.load(f)
-        
     
-    timestamps_np = data["timestamps_s"]
-    joint_angles_np = data["joint_deg"]
-    ee_positions_np = data["ee_pos_mm"]
-    waypoints_np = data["waypoints_deg"]
+    # Extract data using correct keys
+    timestamps_np = data["time"]
+    joint_angles_np = data["joint_angles"] 
+    joint_velocities_np = data["joint_velocities"]  # This is what we need for plot (b)
+    ee_positions_np = data["ee_positions"]
+    ee_velocities_cmd_np = data["ee_velocities_commanded"]
+    ee_velocities_actual_np = data["ee_velocities_actual"]  # This is from get_fwd_vel_kin()
+    waypoints_np = data["waypoints"]
     
-    # Plot joint angles
-    plt.figure(figsize=(12, 10))
-    plt.subplots_adjust(hspace=0.4)
-    
-    for i in range(4):
-        plt.subplot(4, 1, i+1)
-        plt.plot(timestamps_np, joint_angles_np[:, i], label=f"Joint {i+1}")
-        plt.xlabel("Time (s)")
-        plt.ylabel("Angle (deg)")
-        plt.title(f"Joint {i+1} Angle vs Time")
-        plt.grid()
-        plt.legend()
-    plt.show()
-
-    # Plot X and Z position vs time
-    plt.figure(figsize=(10, 6))
-    plt.plot(timestamps_np, ee_positions_np[:, 0], 'b-', label='x position')
-    plt.plot(timestamps_np, ee_positions_np[:, 2], 'r-', label='z position')
-    plt.xlabel('Time (sec)')
-    plt.ylabel('Position (mm)')
-    plt.title('End-Effector Position vs Time')
-    plt.grid(True)
-    plt.legend()
-    plt.show()
-
-    # Plot X-Z trajectory with waypoints
-    plt.figure(figsize=(8, 8))
-    plt.plot(ee_positions_np[:, 0], ee_positions_np[:, 2], 'b-', label='Actual Path')
-    plt.plot(ee_positions_np[0, 0], ee_positions_np[0, 2], 'go', label='Start')
-    
-    # Create robot instance to compute waypoint positions
-    robot = Robot()
-    waypoint_ee_pos = []
-    for waypoint in waypoints_np:
-        T = robot.get_fk(waypoint)
-        waypoint_ee_pos.append([T[0,3], T[2,3]])  # x,z coordinates
-    waypoint_ee_pos = np.array(waypoint_ee_pos)
-    
-    plt.plot(waypoint_ee_pos[:, 0], waypoint_ee_pos[:, 1], 'ro', label='Waypoints')
-    plt.xlabel('X Position (mm)')
-    plt.ylabel('Z Position (mm)')
-    plt.title('End-Effector X-Z Trajectory')
-    plt.grid(True)
-    plt.axis('equal')
-    plt.legend()
-    plt.show()
-
-    # Plot X-Y trajectory with waypoints
-    plt.figure(figsize=(8, 8))
-    plt.plot(ee_positions_np[:, 0], ee_positions_np[:, 1], 'b-', label='Actual Path')
-    plt.plot(ee_positions_np[0, 0], ee_positions_np[0, 1], 'go', label='Start')
-    plt.plot(waypoint_ee_pos[:, 0], [T[1,3] for T in [robot.get_fk(w) for w in waypoints_np]], 'ro', label='Waypoints')
-    plt.xlabel('X Position (mm)')
-    plt.ylabel('Y Position (mm)')
-    plt.title('End-Effector X-Y Trajectory')
-    plt.grid(True)
-    plt.axis('equal')
-    plt.legend()
-    plt.show()
-
-
-
-    # plot 3D plot showing path traced by end-effector in task space during entire trajectory, marking the 3 waypoints and their coordinates
+    # a) 3D end-effector trajectory
     fig = plt.figure(figsize=(10, 8))
     ax = fig.add_subplot(111, projection='3d')
-    ax.plot(data_ee_pos[:, 0], data_ee_poses[:, 1], data_ee_poses[:, 2], 'b-', label='End-Effector Path')
-    ax.scatter(waypoints_np[:, 0], waypoints_np[:, 1], waypoints_np[:, 2], c='r', marker='o', s=100, label='Waypoints')
+    ax.plot(ee_positions_np[:, 0], ee_positions_np[:, 1], ee_positions_np[:, 2], 'b-', 
+            linewidth=2, label='Actual End-Effector Path')
+    ax.scatter(waypoints_np[:, 0], waypoints_np[:, 1], waypoints_np[:, 2], 
+               c='red', marker='o', s=100, label='Waypoints')
+    
+    # Add waypoint labels
     for i, waypoint in enumerate(waypoints_np):
         ax.text(waypoint[0], waypoint[1], waypoint[2], 
-            f'Waypoint {i}\n({waypoint[0]:.0f}, {waypoint[1]:.0f}, {waypoint[2]:.0f})', 
-            color='black')
-        ax.set_xlabel('X Position (mm)')
-        ax.set_ylabel('Y Position (mm)')
-        ax.set_zlabel('Z Position (mm)')
-        ax.set_title('End-Effector 3D Trajectory')
-        ax.legend()
-        plt.show()
+                f'WP{i+1}\n({waypoint[0]:.0f},{waypoint[1]:.0f},{waypoint[2]:.0f})', 
+                fontsize=8)
     
+    ax.set_xlabel('X Position (mm)')
+    ax.set_ylabel('Y Position (mm)')
+    ax.set_zlabel('Z Position (mm)')
+    ax.set_title('3D End-Effector Trajectory')
+    ax.legend()
+    # Equal aspect ratio
+    max_range = np.array([ee_positions_np[:, 0].max()-ee_positions_np[:, 0].min(),
+                         ee_positions_np[:, 1].max()-ee_positions_np[:, 1].min(),
+                         ee_positions_np[:, 2].max()-ee_positions_np[:, 2].min()]).max() / 2.0
+    mid_x = (ee_positions_np[:, 0].max()+ee_positions_np[:, 0].min()) * 0.5
+    mid_y = (ee_positions_np[:, 1].max()+ee_positions_np[:, 1].min()) * 0.5
+    mid_z = (ee_positions_np[:, 2].max()+ee_positions_np[:, 2].min()) * 0.5
+    ax.set_xlim(mid_x - max_range, mid_x + max_range)
+    ax.set_ylim(mid_y - max_range, mid_y + max_range)
+    ax.set_zlim(mid_z - max_range, mid_z + max_range)
+    plt.show()
 
+    # b) Joint velocities vs time (4 separate figures)
+    line_styles = ['-', '--', '-.', ':']
+    colors = ['blue', 'red', 'green', 'orange']
 
-    #Joint angles from sensor readings. Plot four lines showing measured joint angles q1, q2, q3, q4 (degrees) versus time (sec). These are the angles recorded via get_joints_readings() during motion. Use distinguishable line styles and include a legend
-    # Create joint angle plots
-    plt.figure(figsize=(12, 10))
-    plt.subplots_adjust(hspace=0.4)
     for i in range(4):
-        plt.subplot(4, 1, i+1)
-        plt.plot(timestamps_np, data_q[:, i], label=f"Joint {i+1}")
+        plt.figure(figsize=(10, 6))
+        plt.plot(timestamps_np, joint_velocities_np[:, i], line_styles[i], 
+                color=colors[i], label=f"q̇{i+1} (Joint {i+1} Velocity)", linewidth=2)
         plt.xlabel("Time (s)")
-        plt.ylabel("Angle (deg)")
-        plt.title(f"Joint {i+1} Angle vs Time")
-        plt.grid()
+        plt.ylabel("Angular Velocity (deg/s)")
+        plt.title(f"Joint {i+1} Velocity vs Time")
+        plt.grid(True)
         plt.legend()
         plt.show()
 
-
-#Task-space pose, velocity, and acceleration. Create a figure with three 2D subplots stacked vertically:– Top: Four lines showing x, y, z (mm) and ¸ (deg) versus time (sec)– Middle: Four lines showing ˙x, ˙y, ˙z (mm/s) and ˙¸ (deg/s) versus time– Bottom: Four lines showing ¨x, ¨y, ¨z (mm/s2) and ¨¸ (deg/s2) versus time. Use distinguishable line styles and include legends. Hint: Compute velocities and accelerations using numerical differentiation (e.g., np.gradient() or finite differences).
-    # Task-space pose, velocity, and acceleration plotting
-
-    # Compute velocities and accelerations
-    ee_velocities = np.gradient(data_ee_poses, axis=0)  # mm/s
-    ee_accelerations = np.gradient(ee_velocities, axis=0)  # mm/s^2
-
-    plt.figure(figsize=(12, 12))
-    plt.subplots_adjust(hspace=0.4)
-
-    # Top subplot: Position
-    plt.subplot(3, 1, 1)
-    plt.plot(timestamps_np, data_ee_poses[:, 0], label='x (mm)')
-    plt.plot(timestamps_np, data_ee_poses[:, 1], label='y (mm)')
-    plt.plot(timestamps_np, data_ee_poses[:, 2], label='z (mm)')
-    plt.plot(timestamps_np, data_ee_poses[:, 3], label='¸ (deg)')
+    # c) End-effector pose vs time
+    plt.figure(figsize=(12, 8))
+    line_styles = ['-', '--', '-.', ':']
+    labels = ['x (mm)', 'y (mm)', 'z (mm)', 'pitch (deg)']
+    colors = ['blue', 'red', 'green', 'orange']
+    
+    for i in range(4):
+        plt.plot(timestamps_np, ee_positions_np[:, i], line_styles[i], 
+                color=colors[i], label=labels[i], linewidth=2)
+    
     plt.xlabel('Time (s)')
-    plt.ylabel('Position')
-    plt.title('End-Effector Position vs Time')
+    plt.ylabel('Position/Orientation')
+    plt.title('End-Effector Pose vs Time')
     plt.grid(True)
     plt.legend()
-
-    # Middle subplot: Velocity
-    plt.subplot(3, 1, 2)
-    plt.plot(timestamps_np, ee_velocities[:, 0], label='˙x (mm/s)')
-    plt.plot(timestamps_np, ee_velocities[:, 1], label='˙y (mm/s)')
-    plt.plot(timestamps_np, ee_velocities[:, 2], label='˙z (mm/s)')
-    plt.plot(timestamps_np, ee_velocities[:, 3], label='˙¸ (deg/s)')
-    plt.xlabel('Time (s)')
-    plt.ylabel('Velocity')
-    plt.title('End-Effector Velocity vs Time')
-    plt.grid(True)
-    plt.legend()
-
-    # Bottom subplot: Acceleration
-    plt.subplot(3, 1, 3)
-    plt.plot(timestamps_np, ee_accelerations[:, 0], label='¨x (mm/s²)')
-    plt.plot(timestamps_np, ee_accelerations[:, 1], label='¨y (mm/s²)')
-    plt.plot(timestamps_np, ee_accelerations[:, 2], label='¨z (mm/s²)')
-    plt.plot(timestamps_np, ee_accelerations[:, 3], label='¨¸ (deg/s²)')
-    plt.xlabel('Time (s)')
-    plt.ylabel('Acceleration')
-    plt.title('End-Effector Acceleration vs Time')
-    plt.grid(True)
-    plt.legend()
-
     plt.show()
 
+    # d) End-effector velocities vs time (using get_fwd_vel_kin data)
+    plt.figure(figsize=(12, 8))
+    line_styles = ['-', '--', '-.', ':']
+    labels = ['ẋ (mm/s)', 'ẏ (mm/s)', 'ż (mm/s)', 'pitcḣ (deg/s)']
+    colors = ['blue', 'red', 'green', 'orange']
+    
+    # Use actual velocities from get_fwd_vel_kin (first 4 components: x, y, z, pitch rates)
+    for i in range(4):
+        plt.plot(timestamps_np, ee_velocities_actual_np[:, i], line_styles[i], 
+                color=colors[i], label=labels[i], linewidth=2)
+    
+    plt.xlabel('Time (s)')
+    plt.ylabel('Velocity')
+    plt.title('End-Effector Velocities vs Time (from get_fwd_vel_kin)')
+    plt.grid(True)
+    plt.legend()
+    
+    # Add horizontal line at 50 mm/s for reference
+    plt.axhline(y=50, color='black', linestyle=':', alpha=0.7, label='Target Speed (50 mm/s)')
+    plt.axhline(y=-50, color='black', linestyle=':', alpha=0.7)
+    plt.legend()
+    plt.show()
 
 
 

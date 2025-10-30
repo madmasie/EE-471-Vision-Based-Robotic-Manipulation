@@ -490,7 +490,7 @@ class Robot(OM_X_arm):
         3. Returning the 6 × 1 velocity vector [v⊤; w⊤]⊤
         '''
         J_q = self.get_jacobian(q)  # 6x4 Jacobian
-        p_dot = J_q @ qd            # 6x1 end-effector velocity
+        p_dot = J_q @ np.deg2rad(qd)          # 6x1 end-effector velocity
         return p_dot
     
 
