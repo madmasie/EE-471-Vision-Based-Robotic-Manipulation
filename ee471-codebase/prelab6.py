@@ -1,6 +1,5 @@
 """
 Prelab 6 - Part 1: Kabsch 3D Point Registration (A -> B)
-Run this file to reproduce the results printed below.
 """
 import numpy as np
 
