@@ -23,30 +23,27 @@ def main():
     print("Camera-Robot Calibration Validation")
     print("="*60)
     
-    # TODO: Initialize camera and detector
+    #  Initialize camera and detector
     # Hint: Create Realsense() and AprilTags() instances
-    rs = Realsense()
-    detector = AprilTags()
     print("\nInitializing camera and detector...")
     # YOUR CODE HERE
-    camera = None  # Replace with actual camera
-    detector = None  # Replace with actual detector
+    camera = Realsense()  # Replace with actual camera
+    detector = AprilTags()  # Replace with actual detector
     
-    # TODO: Get camera intrinsics
+    # : Get camera intrinsics
     # Hint: Use camera.get_intrinsics()
     # YOUR CODE HERE
-    intrinsics = None  # Replace with actual intrinsics
+    intrinsics = camera.get_intrinsics()  # Replace with actual intrinsics
     
-    # TODO: Load the calibration transformation matrix
+    # : Load the calibration transformation matrix
     # Hint: Use np.load('camera_robot_transform.npy')
     # YOUR CODE HERE
-    T_cam_to_robot = None  # Replace with loaded transformation
+    T_cam_to_robot = np.load('camera_robot_transform.npy')  # Replace with loaded transformation
     print("\nLoaded camera-to-robot transformation matrix:")
     print(T_cam_to_robot)
     
-    # TODO: Set the validation tag size in millimeters
+    # : Set the validation tag size in millimeters
     # IMPORTANT: Measure your validation tag!
-    # YOUR CODE HERE
     TAG_SIZE = 40.0  # Update this value
     print(f"\nValidation tag size: {TAG_SIZE} mm")
     
@@ -70,10 +67,9 @@ def main():
         # STEP 1: CAPTURE FRAME
         # -----------------------------------------------------------------
         
-        # TODO: Get camera frame
+        #  Get camera frame
         # Hint: Use camera.get_frames() which returns (color_frame, depth_frame)
-        # YOUR CODE HERE
-        color_frame = None  # Replace with actual frame
+        color_frame, depth_frame = camera.get_frames()  
         
         if color_frame is None:
             continue
@@ -82,10 +78,10 @@ def main():
         # STEP 2: DETECT APRILTAGS
         # -----------------------------------------------------------------
         
-        # TODO: Detect AprilTags in the frame
+        # Detect AprilTags in the frame
         # Hint: Use detector.detect_tags(color_frame)
         # YOUR CODE HERE
-        tags = None  # Replace with detected tags
+        tags = detector.detect_tags(color_frame)  # Replace with detected tags
         
         # -----------------------------------------------------------------
         # STEP 3: PROCESS DETECTED TAGS
@@ -97,30 +93,30 @@ def main():
             # Use the first detected tag
             tag = tags[0]
             
-            # TODO: Get pose estimation in camera frame
+            # Get pose estimation in camera frame
             # Hint: Use detector.get_tag_pose(tag.corners, intrinsics, TAG_SIZE)
             # Returns: (rotation_matrix, translation_vector)
             # YOUR CODE HERE
-            rot_matrix = None  # Replace with actual rotation
-            trans_vector = None  # Replace with actual translation
+            rot_matrix = detector.get_tag_pose(tag.corners, intrinsics,TAG_SIZE)[0]  # Replace with actual rotation
+            trans_vector = detector.get_tag_pose(tag.corners, intrinsics,TAG_SIZE)[1]   # Replace with actual translation
             
             # Check if pose estimation was successful
             if rot_matrix is not None and trans_vector is not None:
                 
-                # TODO: Extract position in camera frame (already in mm)
+                #: Extract position in camera frame (already in mm)
                 # Hint: Flatten trans_vector to get a 1D array of shape (3,)
                 # YOUR CODE HERE
-                pos_camera = None  # Replace with position array
+                pos_camera = np.array(trans_vector).flatten()  # Replace with position in camera frame
 
-                # TODO: Create full 4x4 pose transformation from tag to camera
+                #: Create full 4x4 pose transformation from tag to camera
                 T_tag_to_cam = np.eye(4)
-                T_tag_to_cam[:3, :3] = None  # Replace with rotation matrix
-                T_tag_to_cam[:3, 3] = None  # Replace with translation vector
+                T_tag_to_cam[:3, :3] = rot_matrix
+                T_tag_to_cam[:3, 3] = pos_camera  # Replace with translation vector
                 
-                # TODO: # Transform full pose to robot frame
+                # # Transform full pose to robot frame
                 # Hint: Multiply T_cam_to_robot @ T_tag_to_cam
                 # YOUR CODE HERE
-                T_tag_to_robot = None  # Replace with homogeneous coordinates (4x4)
+                T_tag_to_robot = T_cam_to_robot @ T_tag_to_cam  # Replace with transformation to robot frame
                 
                 # Extract position and orientation in robot frame
                 pos_robot = T_tag_to_robot[:3, 3]
@@ -129,15 +125,15 @@ def main():
                 # Could convert rotation to Euler angles for display
                 euler_robot = cv2.RQDecomp3x3(rot_robot)[0]
                 
-                # TODO: Calculate distance from camera
+                # Calculate distance from camera
                 # Hint: Use np.linalg.norm()
                 # YOUR CODE HERE
-                distance = None  # Replace with distance
+                distance = np.linalg.norm(pos_camera)  # Replace with distance calculation
                 
-                # TODO: Draw detection on image
+                # Draw detection on image
                 # Hint: Use detector.draw_tags(color_frame, tag)
                 # YOUR CODE HERE
-                
+                detector.draw_tags(color_frame, tag)  # Draw tag on image
 
                 # Add coordinate overlay on image
                 y_offset = 60
@@ -161,14 +157,16 @@ def main():
                     print("\nTag Orientation:")
                     # TODO: Print Tag Orientation in Robot Frame
                     # YOUR CODE HERE
-                    
+                    print(f"Roll: {euler_robot[0]:.2f}°, Pitch: {euler_robot[1]:.2f}°, Yaw: {euler_robot[2]:.2f}°")
                     print("\nCamera Frame (mm):")
                     # TODO: Print 3D positions in Camera Frame
                     # YOUR CODE HERE
+                    print(f"X: {pos_camera[0]:.1f}, Y: {pos_camera[1]:.1f}, Z: {pos_camera[2]:.1f}")
 
                     print("\nRobot Frame (mm):")
                     # TODO: Print 3D positions in Robot Frame
                     # YOUR CODE HERE
+                    print(f"X: {pos_robot[0]:.1f}, Y: {pos_robot[1]:.1f}, Z: {pos_robot[2]:.1f}")   
 
                     print("-"*50)
             
