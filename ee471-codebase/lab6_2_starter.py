@@ -344,6 +344,8 @@ def main():
 
     print(f"Transformation matrix saved to '{filename}'")
     print("="*60)
+
+    data = np.load('camera_robot_transform.npy')
     
     print("\nCleaning up...")
     # Stop camera and close windows
