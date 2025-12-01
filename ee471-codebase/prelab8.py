@@ -133,6 +133,7 @@ def detect_balls(image_path: str,
     # Output annotated image
     if draw:
         cv2.imwrite("prelab8_output.png", vis)
+        cv2.imshow("Original", img)
         cv2.imshow("Annotated", vis); print("Saved prelab8_output.png"); cv2.waitKey(0); cv2.destroyAllWindows()
 
     return detections
