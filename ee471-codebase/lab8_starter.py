@@ -22,6 +22,7 @@ from classes.Realsense import Realsense
 from classes.TrajPlanner import TrajPlanner
 
 
+
 #prelab 8 stuff
 FONT = cv2.FONT_HERSHEY_SIMPLEX
 
@@ -397,6 +398,17 @@ def move_trajectory(robot, target_pos, traj_time=TRAJECTORY_TIME):
         target_pos: Target position [x, y, z, pitch] in mm and degrees
         traj_time: Duration of trajectory in seconds
     """
+
+
+    max_samples = 10000
+    count = 0  # Sample counter
+    data_time = np.zeros(max_samples)
+    data_pid = np.zeros((max_samples, 3))           # PID output velocity commands
+    data_joint_vel = np.zeros((max_samples, 4))     # Joint velocities 
+    pos_current = np.zeros((max_samples, 4))        # Current EE positions
+    pos_desired = np.zeros((max_samples, 4))        # Desired EE positions
+    data_error = np.zeros((max_samples, 3))      # Position errors
+    tag_detected_list = [] 
     # ==========================================================================
     # TODO: Get current joint positions and end-effector position
     # ==========================================================================
@@ -470,26 +482,27 @@ def move_trajectory(robot, target_pos, traj_time=TRAJECTORY_TIME):
         robot.write_joints(trajectories[i, 1:])
 
         if count < max_samples:
-                    data_time[count] = time.perf_counter() - data_start_time
-                    data_pid[count, :] = velocity_cmd
-                    data_joint_vel[count, :] = np.rad2deg(joint_vel)
-                    pos_current[count, :] = current_ee_pos
-                    pos_desired[count, :] = desired_ee_pos
-                    data_error[count, :] = error
-                    if len(tags) > 0:
-                        tag_detected_list.append(True)
-                    else:
-                        tag_detected_list.append(False)
-                    count += 1
+                    data_time[count] = time.perf_counter() - start_time
+                    
+                    
+                    pos_current[count, :] = current_pos
+                    pos_desired[count, :] = target_pos
 
-                # Print status every 40 iterations (~2 seconds at 20Hz)
-                if iteration % 40 == 0:
-                    print(f"\nIteration: {iteration}")
-                    print(f"Tag position (robot): {tag_pos_robot}")
-                    print(f"Current EE position:  {current_ee_pos}")
-                    print(f"Desired EE position:  {desired_ee_pos}")
-                    print(f"Error: {error} mm")
-                    print(f"Error magnitude: {np.linalg.norm(error):.2f} mm")
+    data = {
+            'time': data_time, # Timestamp (s)
+            'pos_current': pos_current, # Current EE position [x,y,z] (mm)
+            'pos_desired': pos_desired, # Desired EE position [x,y,z] (mm)
+            'error': data_error, # Position error [ex,ey,ez] (mm)
+            'control_output': data_pid, # PID output [vx,vy,vz] (mm/s)
+            'joint_vel': data_joint_vel, # Joint velocities (rad/s)
+            'tag_detected': tag_detected_list  # Boolean: tag visible
+        }
+            
+    filename = 'lab8_data.pkl'
+    with open(filename, 'wb') as f:
+        pickle.dump(data, f)
+    print(f"Data saved! Collected {count} samples")
+
 
     # start_time = time.time()
     # for i, q in enumerate(traj):
@@ -622,15 +635,7 @@ def main():
     # ==========================================================================
     # INITIALIZATION
     # ==========================================================================
-    max_samples = 10000
-    count = 0  # Sample counter
-    data_time = np.zeros(max_samples)
-    data_pid = np.zeros((max_samples, 3))           # PID output velocity commands
-    data_joint_vel = np.zeros((max_samples, 4))     # Joint velocities 
-    pos_current = np.zeros((max_samples, 3))        # Current EE positions
-    pos_desired = np.zeros((max_samples, 3))        # Desired EE positions
-    data_error = np.zeros((max_samples, 3))      # Position errors
-    tag_detected_list = []     
+    
                          # Tag detection status
     # TODO: Initialize robot, camera, and get intrinsics
     # Hint: Create Robot(), Realsense(), and get intrinsics
@@ -814,24 +819,11 @@ def main():
         print("Done!")
 
 
-        data = {
-            'time': data_time, # Timestamp (s)
-            'pos_current': pos_current, # Current EE position [x,y,z] (mm)
-            'pos_desired': pos_desired, # Desired EE position [x,y,z] (mm)
-            'error': data_error, # Position error [ex,ey,ez] (mm)
-            'control_output': data_pid, # PID output [vx,vy,vz] (mm/s)
-            'joint_vel': data_joint_vel, # Joint velocities (rad/s)
-            'tag_detected': tag_detected_list  # Boolean: tag visible
-        }
-            
-        filename = 'lab8_data.pkl'
-        with open(filename, 'wb') as f:
-            pickle.dump(data, f)
-        print(f"Data saved! Collected {count} samples")
+        
         
         # Then do the cleanup
         print("\nStopping robot and cleaning up...")
-        plot_data('lab7_data.pkl')
+        plot_data('lab8_data.pkl')
         robot.write_velocities([0, 0, 0, 0])
         camera.stop()
         cv2.destroyAllWindows()
