@@ -12,14 +12,15 @@ This script implements a complete robotic sorting system that:
 System Architecture:
     Detection → Localization → Motion Planning → Execution → Repeat
 """
-
 import numpy as np
 import cv2
 import time
+import pickle
 
 from classes.Robot import Robot
 from classes.Realsense import Realsense
 from classes.TrajPlanner import TrajPlanner
+
 
 #prelab 8 stuff
 FONT = cv2.FONT_HERSHEY_SIMPLEX
@@ -53,8 +54,8 @@ NUM_POINTS = 100       # Number of waypoints in each trajectory
 
 # Workspace safety bounds (millimeters, in robot frame)
 # TODO: Adjust these based on your setup to prevent collisions
-X_MIN, X_MAX = 50, 230   # Forward/backward limits
-Y_MIN, Y_MAX = -150, 150 # Left/right limits
+X_MIN, X_MAX = 30, 230   # Forward/backward limits
+Y_MIN, Y_MAX = -150, 250 # Left/right limits
 
 # Home position: [x, y, z, pitch] in mm and degrees
 # This position should give the camera a clear view of the workspace
@@ -169,7 +170,6 @@ def get_ball_pose(corners: np.ndarray, intrinsics: any, radius: float) -> tuple:
 
     return rot_matrix, tvec
 
-
 def detect_balls(image):
     """
     Detect colored balls in the input image using computer vision.
@@ -209,95 +209,167 @@ def detect_balls(image):
     #
     # Explore different preprocessing techniques and parameters!
     
+    # Preprocessing for better detection
     hsv = cv2.cvtColor(image, cv2.COLOR_BGR2HSV)
+    hsv_blur = cv2.GaussianBlur(hsv, (5, 5), 0)
     gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-    gray_blur = cv2.GaussianBlur(gray, (9, 9), 2)  # slight blur helps Hough
-
-    # Hough Circle Transform to detect candidate circles
-    circles = cv2.HoughCircles(
-        gray_blur,
-        cv2.HOUGH_GRADIENT,
-        dp=1.2,
-        minDist=40,
-        param1=120,
-        param2=28,
-        minRadius=12,
-        maxRadius=80
-    )
+    gray_blur = cv2.GaussianBlur(gray, (5, 5), 1.2)
     
+    # Color ranges from prelab8 (better than simple hue thresholding)
+    COLOR_RANGES = {
+        "red": [
+            (np.array([0,   120, 70]),  np.array([4, 255, 255])),
+            (np.array([170, 120, 70]),  np.array([180, 255, 255])),
+        ],
+        "orange": [(np.array([5, 120, 70]), np.array([22, 255, 255]))],
+        "yellow": [(np.array([23, 120, 70]), np.array([35, 255, 255]))],
+        "blue":   [(np.array([90, 120, 60]), np.array([125, 255, 255]))],
+    }
     
-    # If no circles detected, show image and return None
-    if circles is None or len(circles[0]) == 0:
-        cv2.imshow('Detection', image)
-        cv2.waitKey(1)
-        return None
+    result = []
+    min_area = 150
+    min_circ = 0.70
     
-    # Convert circle parameters to integers
-    circles = np.uint16(np.around(circles))
-    
-    result = []  # List to store (color, center, radius) tuples
-    
-    # Process each detected circle
-    for circle in circles[0, :]:
-        center = (circle[0], circle[1])  # (cx, cy) in pixels
-        radius = circle[2]               # radius in pixels
-
-        # ======================================================================
-        # TODO: CLASSIFY BALL COLOR
-        # ======================================================================
-        # Determine the color of this detected circle. Approaches to consider:
-        #   - HSV color space analysis (hue values)
-        #
-        # Important: Focus analysis on pixels within the circle (using masks), not entire image
-        #
-        # Must classify as one of: 'red', 'orange', 'yellow', 'blue'
-        # Set variable 'color' to the classification result
-        # Use 'continue' to skip circles that don't match any target color
-        #
-        # Note: Red color may require special handling depending on color space!
-        #
-        # YOUR CODE HERE
-
-        # Create a circular mask for this detected circle
-        mask = np.zeros(hsv.shape[:2], dtype=np.uint8)
-        cv2.circle(mask, center, radius, 255, -1)
-
-        # Extract hue values inside the circle
-        h, s, v = cv2.split(hsv)
-        valid = mask > 0
-        if not np.any(valid):
-            continue
-
-        avg_hue = np.mean(h[valid])
-
-        # Classify based on average hue (ranges consistent with your prelab)
-        color = None
-        if (avg_hue < 10) or (avg_hue > 170):
-            color = "red"
-        elif 11 <= avg_hue <= 22:
-            color = "orange"
-        elif 23 <= avg_hue <= 35:
-            color = "yellow"
-        elif 90 <= avg_hue <= 130:
-            color = "blue"
-
-        # Skip if color not recognized
-        if color is None:
-            continue
+    # Try contour-based detection first (more robust)
+    for cname, ranges in COLOR_RANGES.items():
+        # Create color mask
+        mask = np.zeros(hsv_blur.shape[:2], dtype=np.uint8)
+        for (lo, hi) in ranges:
+            mask = cv2.bitwise_or(mask, cv2.inRange(hsv_blur, lo, hi))
         
-        # Add to results
-        result.append((color, center, int(radius)))
+        # Clean up with morphology
+        mask = morph_open_close(mask, 5, 7)
         
-        # ======================================================================
-        # TODO: Draw detection visualization on image
-        # ======================================================================
-        # Hint: Draw circle outline, center point, and color label
-        # Use cv2.circle() for shapes and cv2.putText() for text
-        # YOUR CODE HERE
-        cv2.circle(image, center, radius, (0, 255, 0), 2)  # Green circle
-        cv2.circle(image, center, 3, (0, 0, 255), -1)      # Red center dot
-        cv2.putText(image, color, (center[0] - 20, center[1] - 20),
-                   cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 2)
+        # Find contours
+        contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        
+        found_this_color = False
+        for contour in contours:
+            area = cv2.contourArea(contour)
+            if area < min_area:
+                continue
+                
+            perimeter = cv2.arcLength(contour, True)
+            circ = circularity(area, perimeter)
+            if circ < min_circ:
+                continue
+                
+            # Get center and radius
+            M = cv2.moments(contour)
+            if M["m00"] == 0:
+                continue
+            cx = int(M["m10"] / M["m00"])
+            cy = int(M["m01"] / M["m00"])
+            radius = int(np.sqrt(area / np.pi))
+            
+            result.append((cname, (cx, cy), radius))
+            found_this_color = True
+        
+        # Fallback to Hough circles if contours didn't work
+        if not found_this_color:
+            masked_gray = cv2.bitwise_and(gray_blur, gray_blur, mask=mask)
+            circles = cv2.HoughCircles(
+                masked_gray,
+                cv2.HOUGH_GRADIENT,
+                dp=1.2,
+                minDist=40,
+                param1=120,
+                param2=28,
+                minRadius=12,
+                maxRadius=80
+            )
+            if circles is not None:
+                circles = np.uint16(np.around(circles))
+                for circle in circles[0, :]:
+                    result.append((cname, (circle[0], circle[1]), circle[2]))
+    
+    # If no color-based detection worked, try general Hough circles
+    if not result:
+        circles = cv2.HoughCircles(
+            gray_blur,
+            cv2.HOUGH_GRADIENT,
+            dp=1.2,
+            minDist=40,
+            param1=120,
+            param2=28,
+            minRadius=12,
+            maxRadius=80
+        )
+        
+        if circles is None or len(circles[0]) == 0:
+            cv2.imshow('Detection', image)
+            cv2.waitKey(1)
+            return None
+        
+        circles = np.uint16(np.around(circles))
+        
+        # Process each detected circle
+        for circle in circles[0, :]:
+            center = (circle[0], circle[1])
+            radius = circle[2]
+
+            # ======================================================================
+            # TODO: CLASSIFY BALL COLOR
+            # ======================================================================
+            # Determine the color of this detected circle. Approaches to consider:
+            #   - HSV color space analysis (hue values)
+            #
+            # Important: Focus analysis on pixels within the circle (using masks), not entire image
+            #
+            # Must classify as one of: 'red', 'orange', 'yellow', 'blue'
+            # Set variable 'color' to the classification result
+            # Use 'continue' to skip circles that don't match any target color
+            #
+            # Note: Red color may require special handling depending on color space!
+            #
+            # YOUR CODE HERE
+
+            # Create circular mask for this circle
+            mask = np.zeros(hsv.shape[:2], dtype=np.uint8)
+            cv2.circle(mask, center, radius, 255, -1)
+
+            # Check each color range for best match
+            color = None
+            best_overlap = 0
+            
+            for cname, ranges in COLOR_RANGES.items():
+                color_mask = np.zeros(hsv.shape[:2], dtype=np.uint8)
+                for (lo, hi) in ranges:
+                    range_mask = cv2.inRange(hsv, lo, hi)
+                    color_mask = cv2.bitwise_or(color_mask, range_mask)
+                
+                # Check overlap between circle and color mask
+                overlap = cv2.bitwise_and(mask, color_mask)
+                overlap_ratio = np.sum(overlap) / np.sum(mask)
+                
+                if overlap_ratio > best_overlap and overlap_ratio > 0.3:  # 30% threshold
+                    best_overlap = overlap_ratio
+                    color = cname
+
+            # Skip if no color matched well enough
+            if color is None:
+                continue
+            
+            # Add to results
+            result.append((color, center, int(radius)))
+            
+            # ======================================================================
+            # TODO: Draw detection visualization on image
+            # ======================================================================
+            # Hint: Draw circle outline, center point, and color label
+            # Use cv2.circle() for shapes and cv2.putText() for text
+            # YOUR CODE HERE
+            cv2.circle(image, center, radius, (0, 255, 0), 2)  # Green circle
+            cv2.circle(image, center, 3, (0, 0, 255), -1)      # Red center dot
+            cv2.putText(image, color, (center[0] - 20, center[1] - 20),
+                       cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 2)
+    else:
+        # Draw visualization for contour-based detections
+        for color, center, radius in result:
+            cv2.circle(image, center, radius, (0, 255, 0), 2)  # Green circle
+            cv2.circle(image, center, 3, (0, 0, 255), -1)      # Red center dot
+            cv2.putText(image, color, (center[0] - 20, center[1] - 20),
+                       cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 2)
     
     # Display detection results
     cv2.imshow('Detection', image)
@@ -328,10 +400,11 @@ def move_trajectory(robot, target_pos, traj_time=TRAJECTORY_TIME):
     # ==========================================================================
     # TODO: Get current joint positions and end-effector position
     # ==========================================================================
-    q_curr = robot.get_joint_positions()  # Current joint angles
-    current_pos = robot.fkine(q_curr)     # Current end-effector pose [x, y, z, pitch]
-    current_pos = np.array(current_pos, dtype=np.float32)
-    target_pos = np.array(target_pos, dtype=np.float32)
+    q_curr = robot.get_joints_readings()[0, :]  # Current joint angles
+    current_pos = robot.get_ee_pos(q_curr)[0:4]     # Current end-effector pose [x, y, z, pitch]
+    print(current_pos)
+    print(target_pos)
+    #target_pos = np.array(target_pos, dtype=np.float32)
     
     
     # ==========================================================================
@@ -339,19 +412,26 @@ def move_trajectory(robot, target_pos, traj_time=TRAJECTORY_TIME):
     # ==========================================================================
     # Hint: Stack current_pos and target_pos, create TrajPlanner, call get_quintic_traj()
     # YOUR CODE HERE
-    waypoints = np.vstack((current_pos, target_pos)) #shape 2,4
-    planner = TrajPlanner(waypoints, traj_time, NUM_POINTS)
-    traj_task = planner.get_quintic_traj()  #shape NUM_POINTS,4
+    waypoints = np.vstack((current_pos, target_pos))
+    planner = TrajPlanner(waypoints)
+    trajectories = planner.get_quintic_traj(traj_time, NUM_POINTS)  #shape NUM_POINTS,4
     
     
     # ==========================================================================
     # TODO: Convert entire trajectory to joint space
     # ==========================================================================
-    joint_traj = []
-    for p in traj_task:
-        q = robot.inverse_kinematics(p.tolist())       # IK for each task-space point
-        joint_traj.append(q)
-    joint_traj = np.array(joint_traj)
+    joint_trajectories = []
+    for i in range(len(trajectories)):
+        t = trajectories[i, 0]
+        x, y, z, phi = trajectories[i, 1:]
+        q = robot.get_ik([x, y, z, phi])
+        joint_trajectories.append([t, q[0], q[1], q[2], q[3]])
+    trajectories = np.array(joint_trajectories)
+    # joint_traj = []
+    # for p in traj_task:
+    #     q = robot.get_ik(p.tolist())       # IK for each task-space point
+    #     joint_traj.append(q)
+    # joint_traj = np.array(joint_traj)
     
     # TODO: Calculate time step between waypoints
     dt = traj_time / (NUM_POINTS - 1)
@@ -366,12 +446,57 @@ def move_trajectory(robot, target_pos, traj_time=TRAJECTORY_TIME):
     #   - Send joint commands
     # This ensures smooth, consistent motion regardless of computation time
     # YOUR CODE HERE
-    start_time = time.time()
-    for i, q in enumerate(joint_traj):
-        target_time = start_time + i * dt
-        while time.time() < target_time:
-            time.sleep(0.001)  # Sleep briefly to avoid busy-waiting
-        robot.write_joint_positions(q.tolist())
+
+    start_time = time.perf_counter()
+
+    for i in range(1, len(trajectories)):
+        # Calculate when this command should be sent
+        target_time = start_time + trajectories[i, 0]
+        
+        # Wait until it's time to send this command
+        while time.perf_counter() < target_time:
+            # Collect data while waiting
+             current_time = time.perf_counter() - start_time
+            
+            # if count < max_samples:
+            #     data_q[count, :] = robot.get_joints_readings()[0, :]
+            #     data_time[count] = current_time
+            #     data_ee_poses[count, :] = robot.get_ee_pos(data_q[count, :])[0:4]
+            #     count += 1
+            # # Small sleep to preventfget CPU overload
+            # time.sleep(0.001)  # 1ms sleep
+        
+        # Send the command at the scheduled time
+        robot.write_joints(trajectories[i, 1:])
+
+        if count < max_samples:
+                    data_time[count] = time.perf_counter() - data_start_time
+                    data_pid[count, :] = velocity_cmd
+                    data_joint_vel[count, :] = np.rad2deg(joint_vel)
+                    pos_current[count, :] = current_ee_pos
+                    pos_desired[count, :] = desired_ee_pos
+                    data_error[count, :] = error
+                    if len(tags) > 0:
+                        tag_detected_list.append(True)
+                    else:
+                        tag_detected_list.append(False)
+                    count += 1
+
+                # Print status every 40 iterations (~2 seconds at 20Hz)
+                if iteration % 40 == 0:
+                    print(f"\nIteration: {iteration}")
+                    print(f"Tag position (robot): {tag_pos_robot}")
+                    print(f"Current EE position:  {current_ee_pos}")
+                    print(f"Desired EE position:  {desired_ee_pos}")
+                    print(f"Error: {error} mm")
+                    print(f"Error magnitude: {np.linalg.norm(error):.2f} mm")
+
+    # start_time = time.time()
+    # for i, q in enumerate(traj):
+    #     target_time = start_time + i * dt
+    #     while time.time() < target_time:
+    #         time.sleep(0.001)  # Sleep briefly to avoid busy-waiting
+    #     robot.write_joint_(q.tolist())
 
 
 # ============================================================================
@@ -409,7 +534,7 @@ def pick_ball(robot, ball_pos):
     # Use steep pitch angle (e.g., -80°) for vertical approach
     approach = [ball_pos[0], ball_pos[1], 100, -80]   # may need tuning
     move_trajectory(robot, approach, TRAJECTORY_TIME)
-    
+    print("Reached approach position")
     # ==========================================================================
     # Move down to grasp position
     # ==========================================================================
@@ -417,6 +542,7 @@ def pick_ball(robot, ball_pos):
     # Adjust this height based on your table height and ball size!
     grasp = [ball_pos[0], ball_pos[1], 39, -80]       # may need tuning
     move_trajectory(robot, grasp, TRAJECTORY_TIME * 0.5)
+    print("Reached grasp position")
     
     # ==========================================================================
     # Close gripper to grasp ball
@@ -496,7 +622,16 @@ def main():
     # ==========================================================================
     # INITIALIZATION
     # ==========================================================================
-    
+        max_samples = 10000
+    count = 0  # Sample counter
+    data_time = np.zeros(max_samples)
+    data_pid = np.zeros((max_samples, 3))           # PID output velocity commands
+    data_joint_vel = np.zeros((max_samples, 4))     # Joint velocities 
+    pos_current = np.zeros((max_samples, 3))        # Current EE positions
+    pos_desired = np.zeros((max_samples, 3))        # Desired EE positions
+    data_error = np.zeros((max_samples, 3))      # Position errors
+    tag_detected_list = []     
+                         # Tag detection status
     # TODO: Initialize robot, camera, and get intrinsics
     # Hint: Create Robot(), Realsense(), and get intrinsics
     # YOUR CODE HERE
@@ -519,18 +654,18 @@ def main():
     # ==========================================================================
     # Hint: Set mode to "position", enable motors, set default trajectory time
     # YOUR CODE HERE
-    robot.set_mode("position")
-    robot.enable_motors()
-    robot.write_time(TRAJECTORY_TIME / NUM_POINTS)
+    robot.write_mode("position")
+    robot.write_motor_state(True)
+    robot.write_time(5.0)
     
     # ==========================================================================
     # TODO: Move to home position
     # ==========================================================================
     # Hint: Use inverse kinematics to find joint angles, then command them
     # YOUR CODE HERE
-    q_home = robot.inverse_kinematics(HOME_POSITION)
-    robot.write_joint_positions(q_home)
-    time.sleep(2)  # Wait for motion to complete
+    q_home = robot.get_ik(HOME_POSITION)
+    robot.write_joints(q_home)
+    time.sleep(5)  # Wait for motion to complete
     
     # ==========================================================================
     # TODO: Open gripper initially
@@ -677,6 +812,141 @@ def main():
         
         cv2.destroyAllWindows()
         print("Done!")
+
+
+        data = {
+            'time': data_time, # Timestamp (s)
+            'pos_current': pos_current, # Current EE position [x,y,z] (mm)
+            'pos_desired': pos_desired, # Desired EE position [x,y,z] (mm)
+            'error': data_error, # Position error [ex,ey,ez] (mm)
+            'control_output': data_pid, # PID output [vx,vy,vz] (mm/s)
+            'joint_vel': data_joint_vel, # Joint velocities (rad/s)
+            'tag_detected': tag_detected_list  # Boolean: tag visible
+        }
+            
+        filename = 'lab8_data.pkl'
+        with open(filename, 'wb') as f:
+            pickle.dump(data, f)
+        print(f"Data saved! Collected {count} samples")
+        
+        # Then do the cleanup
+        print("\nStopping robot and cleaning up...")
+        plot_data('lab7_data.pkl')
+        robot.write_velocities([0, 0, 0, 0])
+        camera.stop()
+        cv2.destroyAllWindows()
+        print("Done!")
+
+
+def plot_data(filename='lab8_data.pkl'):
+    """
+    Load data and create required plots per lab requirements.
+    Trims unused zero rows from preallocated arrays so plots look clean.
+    """
+    import matplotlib.pyplot as plt
+    from mpl_toolkits.mplot3d import Axes3D  # noqa: F401
+
+    # Load data
+    try:
+        with open(filename, "rb") as f:
+            data = pickle.load(f)
+    except FileNotFoundError:
+        print(f"Error: {filename} not found!")
+        return
+
+    # Extract raw arrays
+    time_data = np.array(data['time'])
+    pos_current = np.array(data['pos_current'])
+    pos_desired = np.array(data['pos_desired'])
+    error_data = np.array(data['error'])
+    control_output = np.array(data['control_output'])
+    joint_vel = np.array(data['joint_vel'])
+    tag_detected = np.array(data['tag_detected'], dtype=bool)  # list -> array
+
+    # -------------------------------------------------------------------------
+    # Trim to only valid samples (non-zero positions OR positive time)
+    # -------------------------------------------------------------------------
+    # A row is "valid" if either pos_current or pos_desired is nonzero
+    pos_nonzero = np.any(pos_current != 0, axis=1) | np.any(pos_desired != 0, axis=1)
+    # Also accept any row with time > 0 (in case your very first sample has zeros)
+    time_nonzero = time_data > 0
+
+    valid_mask = pos_nonzero | time_nonzero
+    valid_indices = np.where(valid_mask)[0]
+
+    if len(valid_indices) == 0:
+        print("plot_data: No valid samples found (all zeros).")
+        return
+
+    start = valid_indices[0]
+    end = valid_indices[-1] + 1  # slice end is exclusive
+
+    # Slice everything consistently
+    time_data = time_data[start:end]
+    pos_current = pos_current[start:end, :]
+    pos_desired = pos_desired[start:end, :]
+    error_data = error_data[start:end, :]
+    control_output = control_output[start:end, :]
+    joint_vel = joint_vel[start:end, :]
+
+    # If tag_detected is shorter (it's a list with length=count), align it
+    if tag_detected.size >= end:
+        tag_detected = tag_detected[start:end]
+    else:
+        # Just truncate/match to time length
+        tag_detected = tag_detected[: time_data.shape[0]]
+
+    # -------------------------------------------------------------------------
+    # 5. 3D TRAJECTORY - single figure
+    # -------------------------------------------------------------------------
+    fig5 = plt.figure(figsize=(10, 8))
+    ax5 = fig5.add_subplot(111, projection='3d')
+
+    # Filter again in case some leading points are still all-zero
+    valid_current = pos_current[np.any(pos_current != 0, axis=1)]
+    valid_desired = pos_desired[np.any(pos_desired != 0, axis=1)]
+
+    if len(valid_current) > 1:
+        ax5.plot(valid_current[:, 0], valid_current[:, 1], valid_current[:, 2],
+                 'b-', linewidth=3, label='Actual Path', alpha=0.8)
+
+        ax5.scatter(valid_current[0, 0], valid_current[0, 1], valid_current[0, 2],
+                    color='green', s=150, label='Start', marker='o', edgecolor='black')
+        ax5.scatter(valid_current[-1, 0], valid_current[-1, 1], valid_current[-1, 2],
+                    color='red', s=150, label='End', marker='s', edgecolor='black')
+
+    if len(valid_desired) > 1:
+        ax5.plot(valid_desired[:, 0], valid_desired[:, 1], valid_desired[:, 2],
+                 'r--', linewidth=2, label='Desired Path', alpha=0.7)
+
+    if len(valid_current) > 0:
+        all_points = valid_current
+        if len(valid_desired) > 0:
+            all_points = np.vstack([valid_current, valid_desired])
+
+        max_range = np.array([
+            all_points[:, 0].max() - all_points[:, 0].min(),
+            all_points[:, 1].max() - all_points[:, 1].min(),
+            all_points[:, 2].max() - all_points[:, 2].min()
+        ]).max() / 2.0
+
+        mid_x = (all_points[:, 0].max() + all_points[:, 0].min()) * 0.5
+        mid_y = (all_points[:, 1].max() + all_points[:, 1].min()) * 0.5
+        mid_z = (all_points[:, 2].max() + all_points[:, 2].min()) * 0.5
+
+        ax5.set_xlim(mid_x - max_range, mid_x + max_range)
+        ax5.set_ylim(mid_y - max_range, mid_y + max_range)
+        ax5.set_zlim(mid_z - max_range, mid_z + max_range)
+
+    ax5.set_xlabel('X Position (mm)')
+    ax5.set_ylabel('Y Position (mm)')
+    ax5.set_zlabel('Z Position (mm)')
+    ax5.set_title('3D End-Effector Trajectory')
+    ax5.legend()
+    ax5.grid(True, alpha=0.3)
+    ax5.view_init(elev=20, azim=45)
+    plt.tight_layout()
+    plt.show()
 
 
 # ============================================================================

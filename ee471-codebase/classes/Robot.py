@@ -329,7 +329,7 @@ class Robot(OM_X_arm):
         r33 = T[2, 2]
 
         yaw = math.degrees(math.atan2(r21, r11))
-        pitch = math.degrees(math.atan2(-r31, math.sqrt(r32**2 + r33**2)))
+        pitch = -(math.degrees(math.atan2(-r31, math.sqrt(r32**2 + r33**2))))
 
         return np.array([x, y, z, pitch, yaw], dtype=float)
                     
@@ -347,7 +347,7 @@ class Robot(OM_X_arm):
         x, y, z, alpha_deg = pose 
 
         #joint limits
-        joint_limits = [(-90, 90), (-9120, 90), (-90, 75), (-100, 100)]
+        joint_limits = [(-90, 90), (-120, 90), (-90, 75), (-100, 100)]
 
         alpha = math.radians(alpha_deg)
 

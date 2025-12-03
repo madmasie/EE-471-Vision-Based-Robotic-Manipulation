@@ -104,20 +104,20 @@ def main():
         # [X, Y, Z] coordinates in mm for each tag
         # Example structure (REPLACE WITH YOUR MEASUREMENTS):
         # Row 1 (tags 0-3)
-        [80,  -90, 0],   # Tag 0
-        [80,  -30, 0],   # Tag 1
-        [80,   30, 0],   # Tag 2
-        [80,   90, 0],   # Tag 3
+        [90,  -90, 0],   # Tag 0
+        [90,  -30, 0],   # Tag 1
+        [90,   30, 0],   # Tag 2
+        [90,   90, 0],   # Tag 3
         # Row 2 (tags 4-7)
-        [140, -90, 0],   # Tag 4
-        [140, -30, 0],   # Tag 5
-        [140,  30, 0],   # Tag 6
-        [140,  90, 0],   # Tag 7
+        [150, -90, 0],   # Tag 4
+        [150, -30, 0],   # Tag 5
+        [150,  30, 0],   # Tag 6
+        [150,  90, 0],   # Tag 7
         # Row 3 (tags 8-11)
-        [200, -90, 0],   # Tag 8
-        [200, -30, 0],   # Tag 9
-        [200,  30, 0],   # Tag 10
-        [200,  90, 0],   # Tag 11
+        [210, -90, 0],   # Tag 8
+        [210, -30, 0],   # Tag 9
+        [210,  30, 0],   # Tag 10
+        [210,  90, 0],   # Tag 11
     ])
     
     # Convert to 3xN format (transpose)
