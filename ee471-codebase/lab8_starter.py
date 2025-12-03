@@ -622,7 +622,7 @@ def main():
     # ==========================================================================
     # INITIALIZATION
     # ==========================================================================
-        max_samples = 10000
+    max_samples = 10000
     count = 0  # Sample counter
     data_time = np.zeros(max_samples)
     data_pid = np.zeros((max_samples, 3))           # PID output velocity commands
